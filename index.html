@@ -132,7 +132,7 @@
       const crmReveal=document.getElementById('crmReveal');
       const crmSwapTexts=[...document.querySelectorAll('[data-crm-swap]')];
       const channel='BroadcastChannel'in window?new BroadcastChannel('crm-dual-presentation'):null;
-      let rightWindow=null,placementIssue='',placementNoticeShown=false;
+      let rightWindow=null,rightWindowExpanded=false,placementIssue='',placementNoticeShown=false;
 
       document.body.dataset.view=view;
       function applyCrmReveal(){crmSwapTexts.forEach(item=>item.textContent='CRM');mainPage.classList.add('crm-revealed');crmReveal?.setAttribute('aria-expanded','true');crmReveal?.setAttribute('aria-label','CRM 설명이 표시됨')}
@@ -152,7 +152,9 @@
       function publish(page){const message={type:'select-detail',page,time:Date.now()};if(channel)channel.postMessage(message);try{localStorage.setItem('crm-dual-presentation',JSON.stringify(message))}catch{}}
       function receive(message){if(!message)return;if(message.type==='select-detail'&&view==='right')renderDetail(message.page);if(message.type==='reveal-crm')applyCrmReveal()}
       function rightUrl(page){const url=new URL(location.href);url.search='';url.searchParams.set('view','right');url.searchParams.set('page',page);return url.href}
+      function isPresentationFullscreen(){const tolerance=10;return Boolean(document.fullscreenElement)||(window.outerWidth>=screen.width-tolerance&&window.outerHeight>=screen.height-tolerance)}
       function fallbackRightTarget(){const left=Number.isFinite(screen.availLeft)?screen.availLeft:0,top=Number.isFinite(screen.availTop)?screen.availTop:0,width=screen.availWidth||screen.width,height=screen.availHeight||screen.height;return{left:left+width,top,width,height}}
+      function expandTarget(target){return{...target,top:target.screen?.top??target.top,width:target.screen?.width||screen.width||target.width,height:target.screen?.height||screen.height||target.height}}
       const rightScreenCacheKey='crm-right-screen-target-v1';
       function cachedRightTarget(){try{const target=JSON.parse(localStorage.getItem(rightScreenCacheKey)||'null'),sourceLeft=Number.isFinite(screen.availLeft)?screen.availLeft:0,sourceTop=Number.isFinite(screen.availTop)?screen.availTop:0;if(target&&target.primaryWidth===screen.width&&target.primaryHeight===screen.height&&target.sourceLeft===sourceLeft&&target.sourceTop===sourceTop&&[target.left,target.top,target.width,target.height].every(Number.isFinite))return{left:target.left,top:target.top,width:target.width,height:target.height}}catch{}return null}
       function cacheRightTarget(target){try{localStorage.setItem(rightScreenCacheKey,JSON.stringify({left:target.left,top:target.top,width:target.width,height:target.height,primaryWidth:screen.width,primaryHeight:screen.height,sourceLeft:Number.isFinite(screen.availLeft)?screen.availLeft:0,sourceTop:Number.isFinite(screen.availTop)?screen.availTop:0}))}catch{}}
@@ -167,14 +169,17 @@
       function showPlacementHelp(popup,target){setTimeout(()=>{if(placementNoticeShown||!popup||popup.closed)return;let actual;try{actual=popup.screenLeft}catch{return}if(Math.abs(actual-target.left)<160)return;placementNoticeShown=true;const detail=placementIssue==='insecure'?'발표 페이지를 file 주소나 IP 주소 대신 http://localhost 주소로 열어주세요.':'Chrome 주소창 왼쪽의 사이트 설정에서 “창 관리” 권한을 허용한 뒤 발표 페이지를 새로고침해 주세요.';alert(`상세 창을 오른쪽 모니터로 이동하지 못했습니다.\n\n${detail}`)},1500)}
       async function openRight(page){
         publish(page);
-        const initialTarget=cachedRightTarget()||fallbackRightTarget(),features=`popup=yes,left=${initialTarget.left},top=${initialTarget.top},width=${initialTarget.width},height=${initialTarget.height},toolbar=no,location=no,menubar=no,status=no,scrollbars=no,resizable=yes`;
+        const inheritFullscreen=isPresentationFullscreen();
+        if(rightWindow&&!rightWindow.closed&&rightWindowExpanded!==inheritFullscreen){try{rightWindow.close()}catch{}rightWindow=null}
+        const baseTarget=cachedRightTarget()||fallbackRightTarget(),initialTarget=inheritFullscreen?expandTarget(baseTarget):baseTarget,fullscreenFeature=inheritFullscreen?',fullscreen=yes':'',features=`popup=yes,left=${initialTarget.left},top=${initialTarget.top},width=${initialTarget.width},height=${initialTarget.height}${fullscreenFeature},toolbar=no,location=no,menubar=no,status=no,scrollbars=no,resizable=yes`;
         if(!rightWindow||rightWindow.closed){
           rightWindow=window.open('about:blank','_blank',features);
+          rightWindowExpanded=inheritFullscreen;
           if(rightWindow)try{rightWindow.location.replace(rightUrl(page))}catch{rightWindow.location.href=rightUrl(page)}
         }
         else rightWindow.focus();
         if(!rightWindow)return;
-        const popup=rightWindow,target=await rightScreenTarget();
+        const popup=rightWindow,baseDestination=await rightScreenTarget(),target=inheritFullscreen?expandTarget(baseDestination):baseDestination;
         placeOnRight(popup,target).then(destination=>{setTimeout(()=>publish(page),100);showPlacementHelp(popup,destination)});
       }
 
